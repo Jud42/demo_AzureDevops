@@ -1,0 +1,116 @@
+parameters:
+- name: terraformPath
+  type: string
+- name: action
+  displayName: Action
+  type: string
+  default: validate
+  values:
+  - validate
+  - plan
+  - apply
+  - destroy
+- name: terraformVersion
+  displayName: Version
+  type: string
+  default: '1.5.1'
+- name: 'ArmServiceConnection'
+  displayName: 'Azure service connection name'
+  type: string
+- name: 'ArmResourceGroupName'
+  displayName: 'Ressource group name for the storage account'
+  type: string
+- name: 'ArmStorageAccountName'
+  displayName: 'Storage account name'
+  type: string
+- name: 'ArmContainerName'
+  displayName: 'Container name'
+  type: string
+  default: 'tfstates'
+- name: 'ArmKey'
+  displayName: 'Terraform state filename'
+  type: string
+
+jobs:
+- job: "Terraform"
+  displayName: "Terraform ${{ parameters.action}} 🚀"
+  steps:
+  - task: TerraformInstaller@0
+    displayName: "Install Terraform"
+    inputs:
+      terraformVersion: ${{ parameters.terraformVersion }}
+      terraformDownloadLocation: 'https://releases.hashicorp.com/terraform'
+  - task: TerraformTaskV4@4
+    displayName: 'Terrafomr init'
+    inputs:
+      provider: 'azurerm'
+      command: 'init'
+      ArmServiceConnection: ${{ parameters.ArmServiceConnection }}
+      backendAzureRmResourceGroupName: ${{ parameters.ArmResourceGroupName }}
+      backendAzureRmStorageAccountName: ${{ parameters.ArmStorageAccountName }}
+      backendAzureRmContainerName: ${{ parameters.ArmContainerName}}
+      backendAzureRmKey: ${{ parameters.ArmKey}}
+      workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}
+      ensureBackend: true
+  - task: TerraformTaskV4@4
+    condition: eq('${{ parameters.action }}', 'validate')
+    displayName: 'Terraform validate'
+    inputs:
+      command: validate
+  - task: TerraformTaskV4@4
+    condition: |
+      or(
+          eq('${{ parameters.action }}', 'apply'),
+          eq('${{ parameters.action }}', 'plan')
+      )
+    name: terraformPlan
+    displayName: 'Terraform plan'
+    inputs:
+      command: plan
+      commandOptions: "-out=tfplan"
+      environmentServiceNameAzureRM: ${{ parameters.ArmServiceConnection }}
+      publishPlanResults: 'Terraform Plan'
+      workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}
+  - task: TerraformTaskV4@4
+    condition: |
+      or(
+          eq('${{ parameters.action }}', 'apply'),
+          eq('${{ parameters.action }}', 'plan')
+      )
+    displayName: 'Terraform show'
+    inputs:
+      provider: 'azurerm'
+      command: 'show'
+      commandOptions: '$(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}/tfplan'
+      outputTo: 'file'
+      outputFormat: 'json'
+      fileName: '$(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}/tfplan.json'
+      environmentServiceNameAzureRM: ${{ parameters.ArmServiceConnection }}
+      workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}    
+  - task: PublishPipelineArtifact@1
+    condition: |
+      or(
+          eq('${{ parameters.action }}', 'apply'),
+          eq('${{ parameters.action }}', 'plan')
+      )
+    inputs:
+      targetPath: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}/tfplan.json
+      artifact: 'Plan'
+      publishLocation: 'pipeline' 
+  - task: TerraformTaskV4@4
+    condition: eq('${{ parameters.action }}', 'apply')
+    displayName: 'Terraform apply'
+    inputs:
+      command: apply
+      commandOptions: "tfplan"
+      condition: eq(variables['terraformPlan.changesPresent'], 'true')
+      environmentServiceNameAzureRM: ${{ parameters.ArmServiceConnection }}
+      workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}
+  - task: TerraformTaskV4@4
+    condition: eq('${{ parameters.action }}', 'destroy')
+    displayName: 'Terraform destroy'
+    inputs:
+      command: destroy   
+      environmentServiceNameAzureRM: ${{ parameters.ArmServiceConnection }}
+      workingDirectory: $(System.DefaultWorkingDirectory)/${{ parameters.terraformPath}}
+

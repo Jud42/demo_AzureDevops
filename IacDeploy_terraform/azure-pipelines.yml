@@ -1,0 +1,28 @@
+name: Deploy IaC $(BuildDefinitionName)_$(date:yyyyMMdd)$(rev:.r)
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+  paths:
+    exclude:
+      - pipelines/*
+pool:
+  vmImage: ubuntu-latest 
+variables:
+  - name: TFSource-Path
+    value: "./terraform/"
+stages:        
+  - stage: "Apply"
+    displayName: "DEV - Deploy Infrasctruture using Terraform"
+    jobs:
+      - template: templates/terraformTmp.yaml
+        parameters:
+          action: apply
+          terraformPath: $(TFSource-Path)
+          ArmServiceConnection: 'Dev-Demo-template'
+          ArmResourceGroupName: 'rg-demo-template'
+          ArmStorageAccountName: 'sastatesdemotemplatetf'
+          ArmContainerName: 'tfstate'
+          ArmKey: 'demotemplate.dev.tfstate'
+
